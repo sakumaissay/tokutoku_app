@@ -239,7 +239,7 @@ function PreviewCard({
   onDismiss: () => void;
 }) {
   const hasPartialFailure = Boolean(preview.error);
-  const title = preview.title?.trim() || preview.url;
+  const title = preview.title?.trim() || "ページ";
   const domain =
     preview.siteName?.trim() ||
     (() => {
@@ -249,6 +249,9 @@ function PreviewCard({
         return "";
       }
     })();
+  const faviconUrl = domain
+    ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
+    : null;
 
   return (
     <div className="relative p-4">
@@ -274,8 +277,11 @@ function PreviewCard({
               className="h-full w-full object-cover object-top"
             />
           ) : (
-            <div className="flex h-full items-center justify-center px-1 text-center text-[10px] text-stone-400">
-              画像なし
+            <div className="flex h-full w-full items-center justify-center">
+              {faviconUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={faviconUrl} alt="" className="h-8 w-8 rounded-md" />
+              )}
             </div>
           )}
         </div>
@@ -300,7 +306,13 @@ function PreviewCard({
             {title}
           </h3>
           {domain && (
-            <p className="mt-1 truncate text-[12px] text-stone-500 dark:text-stone-400">{domain}</p>
+            <p className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-stone-500 dark:text-stone-400">
+              {faviconUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={faviconUrl} alt="" className="h-4 w-4 shrink-0 rounded-sm" />
+              )}
+              <span className="truncate">{domain}</span>
+            </p>
           )}
           {preview.description && !hasPartialFailure && (
             <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-stone-600 dark:text-stone-400">

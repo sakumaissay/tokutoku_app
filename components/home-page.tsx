@@ -16,6 +16,34 @@ const defaultFilter: FilterState = { status: "all", tag: "", keyword: "" };
 const ARTICLES_CACHE_PREFIX = "tokutoku:articles:v1:";
 const OGP_CACHE_PREFIX = "tokutoku:ogp:v1:";
 
+function domainFromUrl(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function fallbackTitleByDomain(domain: string): string {
+  if (!domain) return "ページ";
+  if (domain === "x.com" || domain === "twitter.com") return "Xの投稿";
+  if (domain === "note.com") return "noteの記事";
+  if (domain === "youtube.com" || domain === "youtu.be") return "YouTube動画";
+  return `${domain} のページ`;
+}
+
+function createFallbackPreview(url: string, error?: string): PreviewData {
+  const domain = domainFromUrl(url);
+  return {
+    url,
+    title: fallbackTitleByDomain(domain),
+    description: null,
+    imageUrl: domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128` : null,
+    siteName: domain || null,
+    error: error ?? "OGPを取得できなかったため、簡易プレビューを表示しています。",
+  };
+}
+
 function filterArticles(articles: Article[], f: FilterState): Article[] {
   let list = articles;
   if (f.status !== "all") {
@@ -264,8 +292,11 @@ export function HomePage() {
       return data;
     } catch (e) {
       if (myGen !== ogpGenRef.current) return null;
-      setActionError(e instanceof Error ? e.message : "プレビュー取得に失敗しました");
-      return null;
+      const msg = e instanceof Error ? e.message : "プレビュー取得に失敗しました";
+      const fallback = createFallbackPreview(normalized, msg);
+      setPreview(fallback);
+      setActionError(null);
+      return fallback;
     } finally {
       if (myGen === ogpGenRef.current) {
         setLoadingOgp(false);
