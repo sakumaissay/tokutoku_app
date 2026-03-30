@@ -13,6 +13,9 @@ import type { Article, ArticleStatus } from "@/types/article";
 
 const defaultFilter: FilterState = { status: "all", tag: "", keyword: "" };
 
+const ARTICLES_CACHE_PREFIX = "tokutoku:articles:v1:";
+const OGP_CACHE_PREFIX = "tokutoku:ogp:v1:";
+
 function filterArticles(articles: Article[], f: FilterState): Article[] {
   let list = articles;
   if (f.status !== "all") {
@@ -45,6 +48,7 @@ export function HomePage() {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterState>(defaultFilter);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [saveNote, setSaveNote] = useState("");
@@ -57,9 +61,44 @@ export function HomePage() {
   const handleSignOut = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
     await supabase.auth.signOut();
+
+    // ログアウト時はユーザー単位の一覧キャッシュをクリアする（別ユーザーの一覧が一瞬見える事故を避ける）
+    try {
+      if (userId) {
+        localStorage.removeItem(`${ARTICLES_CACHE_PREFIX}${userId}`);
+      } else {
+        // userId が確定していないケースに備えて prefix ベースで掃除
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k?.startsWith(ARTICLES_CACHE_PREFIX)) localStorage.removeItem(k);
+        }
+      }
+    } catch {
+      // localStorage が使えない環境でも致命的にしない
+    }
+
+    setArticles([]);
+    setPreview(null);
+    setActionError(null);
+
     router.push("/");
     router.refresh();
-  }, [router]);
+  }, [router, userId]);
+
+  useEffect(() => {
+    // userId を取得して、一覧キャッシュをユーザー単位に分離する
+    const supabase = createBrowserSupabaseClient();
+    void supabase.auth.getUser().then(({ data }) => {
+      setUserId(data.user?.id ?? null);
+    });
+  }, []);
+
+  useEffect(() => {
+    // ユーザー切り替え時の「旧一覧が一瞬見える」事故を避ける
+    setArticles([]);
+    setListError(null);
+    setPreview(null);
+  }, [userId]);
 
   const handleUrlChange = useCallback((v: string) => {
     setUrl(v);
@@ -84,21 +123,56 @@ export function HomePage() {
   }, []);
 
   const loadArticles = useCallback(async () => {
+    if (!userId) return;
+
     setListError(null);
-    setLoadingList(true);
+    let hadCache = false;
+
+    // stale を先に出す（キャッシュ優先）
+    try {
+      const cacheRaw = localStorage.getItem(`${ARTICLES_CACHE_PREFIX}${userId}`);
+      if (cacheRaw) {
+        const parsed = JSON.parse(cacheRaw) as { articles?: Article[] } | Article[];
+        const cachedArticles = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed.articles)
+            ? parsed.articles
+            : null;
+        if (cachedArticles) {
+          hadCache = true;
+          setArticles(cachedArticles);
+        }
+      }
+    } catch {
+      // cache が壊れていても先にネット取得する（詳細エラーは出さない）
+    }
+
+    setLoadingList(!hadCache);
     try {
       const res = await fetch("/api/articles");
       const json = (await res.json().catch(() => ({}))) as { error?: unknown; articles?: Article[] };
       if (!res.ok) {
         throw new Error(apiErrorMessage(json));
       }
-      setArticles(json.articles ?? []);
+
+      const latest = json.articles ?? [];
+      setArticles(latest);
+
+      // 取得できた最新をキャッシュに保存
+      try {
+        localStorage.setItem(`${ARTICLES_CACHE_PREFIX}${userId}`, JSON.stringify({ articles: latest }));
+      } catch {
+        // 保存失敗は無視（ブラウザの容量や制限など）
+      }
     } catch (e) {
-      setListError(e instanceof Error ? e.message : "一覧の取得に失敗しました");
+      // stale があるなら表示は維持し、エラーは控えめにする
+      if (!hadCache) {
+        setListError(e instanceof Error ? e.message : "一覧の取得に失敗しました");
+      }
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void loadArticles();
@@ -131,6 +205,24 @@ export function HomePage() {
 
   const performOgpFetch = useCallback(async (normalized: string): Promise<PreviewData | null> => {
     const myGen = ++ogpGenRef.current;
+    const cacheKey = `${OGP_CACHE_PREFIX}${normalized}`;
+
+    // キャッシュヒットなら即表示（ただし世代管理に従って、最新呼び出しのみ反映する）
+    try {
+      const cacheRaw = localStorage.getItem(cacheKey);
+      if (cacheRaw && myGen === ogpGenRef.current) {
+        const parsed = JSON.parse(cacheRaw) as PreviewData;
+        // URL が一致するキャッシュだけ採用（壊れていても例外にしない）
+        if (parsed && typeof parsed.url === "string" && parsed.url === normalized) {
+          setPreview(parsed);
+          setLoadingOgp(false);
+          return parsed;
+        }
+      }
+    } catch {
+      // cache が壊れていても API を叩く
+    }
+
     setLoadingOgp(true);
     setPreview(null);
     try {
@@ -161,6 +253,14 @@ export function HomePage() {
         error: typeof json.error === "string" ? json.error : null,
       };
       setPreview(data);
+
+      // OGP は軽いキャッシュ（壊れたら読み直しで復旧）
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      } catch {
+        // 保存失敗は無視
+      }
+
       return data;
     } catch (e) {
       if (myGen !== ogpGenRef.current) return null;
