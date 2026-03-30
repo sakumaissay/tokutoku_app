@@ -13,16 +13,22 @@ export function LoginForm() {
   const [loading, setLoading] = useState<"google" | "email" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  function buildCallbackUrl() {
+    const safeNext = next.startsWith("/") ? next : "/";
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    callbackUrl.searchParams.set("next", safeNext);
+    return callbackUrl.toString();
+  }
+
   async function signInGoogle() {
     setLoading("google");
     setMessage(null);
     try {
       const supabase = createBrowserSupabaseClient();
-      const origin = window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          redirectTo: buildCallbackUrl(),
         },
       });
       if (error) setMessage(error.message);
@@ -38,11 +44,10 @@ export function LoginForm() {
     setMessage(null);
     try {
       const supabase = createBrowserSupabaseClient();
-      const origin = window.location.origin;
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {
-          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: buildCallbackUrl(),
         },
       });
       if (error) {

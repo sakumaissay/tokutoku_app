@@ -134,14 +134,14 @@ export default function ArticlePage() {
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-10 md:px-8 md:py-14">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <SiteLogo variant="compact" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link
           href="/"
-          className="text-sm text-stone-500 transition duration-200 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 sm:shrink-0"
+          className="text-sm text-stone-500 transition duration-200 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"
         >
           ← 一覧
         </Link>
+        <SiteLogo variant="compact" />
       </div>
 
       <div className="mt-8 overflow-hidden rounded-2xl border border-stone-200/90 bg-white/95 shadow-md shadow-stone-300/25 ring-1 ring-stone-200/40 dark:border-stone-700/90 dark:bg-stone-900/90 dark:shadow-black/25 dark:ring-stone-700/50">
@@ -192,7 +192,7 @@ export default function ArticlePage() {
             onChange={(e) => setNote(e.target.value)}
             rows={6}
             className="rounded-xl border border-stone-200 bg-stone-50/90 px-3 py-2.5 text-sm leading-relaxed outline-none transition duration-200 focus:border-amber-400/90 focus:bg-white focus:ring-2 focus:ring-amber-400/20 dark:border-stone-600 dark:bg-stone-900/70 dark:focus:border-amber-500/80 dark:focus:ring-amber-500/25"
-            placeholder="あとで読むメモ、思考のメモなど…"
+            placeholder="なぜ保存したかメモすると後で見返しやすいです"
           />
         </label>
 

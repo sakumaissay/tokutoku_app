@@ -1,10 +1,11 @@
 "use client";
 
 import type { RefObject } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { TagPill } from "@/components/tag-pill";
 import type { Article, ArticleStatus } from "@/types/article";
 import { formatRelativeJa } from "@/lib/format-time";
+import { articleLinkCardTitle, googleFaviconUrl } from "@/lib/link-card-display";
 import { STATUS_LABEL_JA, STATUS_OPTIONS } from "@/lib/status-labels";
 import { displayHost } from "@/lib/url";
 
@@ -13,6 +14,9 @@ export type FilterState = {
   tag: string;
   keyword: string;
 };
+
+/** 一覧カード本文の固定高さ（フッター除く） */
+const LIST_CARD_BODY_H = "h-[100px]";
 
 type Props = {
   listRef: RefObject<HTMLElement | null>;
@@ -38,7 +42,7 @@ export function ArticleListBlock({
   saveNotice,
 }: Props) {
   return (
-    <section ref={listRef} className="flex flex-col gap-6" aria-labelledby="list-heading">
+    <section ref={listRef} className="flex w-full min-w-0 flex-col gap-6" aria-labelledby="list-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="list-heading" className="text-sm font-semibold text-stone-700 dark:text-stone-300">
@@ -117,10 +121,10 @@ export function ArticleListBlock({
         <p className="text-sm text-stone-500 dark:text-stone-400">条件に一致する記事がありません。フィルタを変えてみてください。</p>
       )}
 
-      <ul className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+      <ul className="flex w-full min-w-0 flex-col gap-3">
         {filtered.map((a) => (
-          <li key={a.id} className="flex min-h-0">
-            <ArticleListCard article={a} />
+          <li key={a.id} className="w-full min-w-0">
+            <ArticleListRowCard article={a} />
           </li>
         ))}
       </ul>
@@ -128,102 +132,135 @@ export function ArticleListBlock({
   );
 }
 
-function ArticleListCard({ article }: { article: Article }) {
-  const detailHref = `/articles/${article.id}`;
-  const title = article.title?.trim() || article.url;
-  const host = displayHost(article.url);
-  const when = formatRelativeJa(article.updatedAt);
-  const tags = article.tags.slice(0, 3);
-  const moreTags = article.tags.length - tags.length;
+function listCardSummary(article: Article): { text: string | null; isPlaceholder: boolean } {
+  const note = article.note?.trim();
+  if (note) return { text: note, isPlaceholder: false };
+  const desc = article.description?.trim();
+  if (desc) return { text: desc, isPlaceholder: false };
+  return { text: null, isPlaceholder: true };
+}
+
+function domainInitialLetter(domain: string): string {
+  const d = domain.replace(/^www\./, "").trim();
+  if (!d) return "?";
+  const m = /[a-z0-9\u3040-\u30ff\u3400-\u4dbf]/i.exec(d);
+  return (m?.[0] ?? d[0] ?? "?").toUpperCase();
+}
+
+function ListFavicon({ host }: { host: string }) {
+  const [broken, setBroken] = useState(false);
+  const initial = domainInitialLetter(host);
+  const src = host.trim() ? googleFaviconUrl(host.replace(/^www\./, "").toLowerCase(), 32) : null;
+
+  if (!src || broken) {
+    return (
+      <div
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-stone-200/80 bg-stone-100 text-[11px] font-semibold text-stone-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300"
+        aria-hidden
+      >
+        {initial}
+      </div>
+    );
+  }
 
   return (
-    <div className="group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-stone-200/90 bg-white/95 shadow-md shadow-stone-300/30 ring-1 ring-stone-200/40 transition duration-300 ease-out hover:-translate-y-0.5 hover:border-amber-300/60 hover:shadow-lg hover:shadow-stone-400/35 dark:border-stone-700/90 dark:bg-stone-900/90 dark:shadow-black/25 dark:ring-stone-700/50 dark:hover:border-amber-700/50 dark:hover:shadow-black/40">
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      width={28}
+      height={28}
+      className="h-7 w-7 shrink-0 rounded-md border border-stone-200/80 bg-white object-contain dark:border-stone-600 dark:bg-stone-900"
+      loading="lazy"
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
+function ArticleListRowCard({ article }: { article: Article }) {
+  const detailHref = `/articles/${article.id}`;
+  const title = articleLinkCardTitle(article);
+  const host = displayHost(article.url);
+  const when = formatRelativeJa(article.updatedAt);
+  const { text: summaryText, isPlaceholder } = listCardSummary(article);
+
+  return (
+    <div className="group flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-stone-200/90 bg-white/95 shadow-md shadow-stone-300/25 ring-1 ring-stone-200/40 transition duration-200 ease-out hover:border-amber-300/50 dark:border-stone-700/90 dark:bg-stone-900/90 dark:shadow-black/20 dark:ring-stone-700/50 dark:hover:border-amber-700/45">
       <Link
         href={detailHref}
-        className="flex min-h-0 flex-1 flex-col rounded-t-2xl outline-none transition duration-300 ease-out focus-visible:ring-2 focus-visible:ring-amber-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f3ed] dark:focus-visible:ring-amber-500/40 dark:focus-visible:ring-offset-[#141210]"
+        className={`flex ${LIST_CARD_BODY_H} shrink-0 gap-3 p-3 outline-none transition duration-200 focus-visible:ring-2 focus-visible:ring-amber-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f3ed] dark:focus-visible:ring-amber-500/40 dark:focus-visible:ring-offset-[#141210]`}
       >
-        {/* サムネ: 全カード同一の固定高さ（アスペクトではなく px で統一） */}
-        <div className="relative h-[104px] w-full shrink-0 overflow-hidden bg-stone-100 dark:bg-stone-900">
-          {article.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={article.imageUrl}
-              alt=""
-              className="h-full w-full object-cover object-top transition duration-500 ease-out group-hover:scale-[1.04]"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-[10px] text-stone-400">画像なし</div>
-          )}
-        </div>
-
-        {/* 本文: 高さをブロック単位で揃え、説明は最大3行で省略 */}
-        <div className="flex min-h-[11.5rem] flex-1 flex-col gap-1.5 px-3 pb-2.5 pt-2">
-          <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 min-h-[2.25rem] flex-1 text-[13px] font-semibold leading-tight tracking-tight text-stone-800 dark:text-stone-50">
-            {title}
-          </h3>
-          <span
-            className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-300"
+        <ListFavicon host={host} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <h3
+              className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-snug text-stone-800 dark:text-stone-50"
+              title={title}
+            >
+              {title}
+            </h3>
+            <span
+              className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-300"
               title={article.status}
             >
               {STATUS_LABEL_JA[article.status]}
             </span>
           </div>
-
-          <p className="shrink-0 truncate text-[11px] leading-none text-stone-400" title={host || undefined}>
-            {host || "\u00a0"}
+          <p className="mt-1 line-clamp-1 text-[12px] leading-snug text-stone-600 dark:text-stone-400">
+            {isPlaceholder ? (
+              <span className="text-stone-400 dark:text-stone-500">メモなし</span>
+            ) : (
+              summaryText
+            )}
           </p>
-
-          {(tags.length > 0 || moreTags > 0) && (
-            <div className="flex min-h-[1.375rem] flex-wrap gap-1">
-              {tags.map((t) => (
-                <TagPill key={t} tag={t} className="!px-2 !py-0.5 !text-[10px]" />
-              ))}
-              {moreTags > 0 && (
-                <span className="inline-flex items-center rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-400">
-                  +{moreTags}
-                </span>
-              )}
-            </div>
-          )}
-
-          <p className="line-clamp-3 min-h-[3.15rem] text-[11px] leading-snug text-stone-500 dark:text-stone-400">
-            {article.description?.trim() ? article.description : "\u00a0"}
-          </p>
-
-          <p
-            className="mt-auto shrink-0 text-[10px] tabular-nums text-stone-400"
-            suppressHydrationWarning
-          >
-            {when}
-          </p>
+          <div className="mt-auto flex min-w-0 items-center justify-between gap-2 pt-0.5 leading-none text-[10px] text-stone-400 tabular-nums dark:text-stone-500">
+            <span className="min-w-0 truncate" title={host || undefined}>
+              {host || "\u00a0"}
+            </span>
+            <span className="shrink-0" suppressHydrationWarning>
+              {when}
+            </span>
+          </div>
         </div>
       </Link>
 
-      <div
-        className="grid shrink-0 grid-cols-2 divide-x divide-stone-200/90 border-t border-stone-200/90 dark:divide-stone-700 dark:border-stone-700"
-        role="group"
-        aria-label="記事の開き方"
+      <ArticleListCardFooter article={article} detailHref={detailHref} host={host} />
+    </div>
+  );
+}
+
+function ArticleListCardFooter({
+  article,
+  detailHref,
+  host,
+}: {
+  article: Article;
+  detailHref: string;
+  host: string;
+}) {
+  return (
+    <div
+      className="grid shrink-0 grid-cols-2 divide-x divide-stone-200/90 border-t border-stone-200/90 dark:divide-stone-700 dark:border-stone-700"
+      role="group"
+      aria-label="記事の開き方"
+    >
+      <a
+        href={article.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium text-amber-900/95 transition duration-200 ease-out hover:bg-amber-50/95 active:bg-amber-100/80 dark:text-amber-200/95 dark:hover:bg-amber-950/40"
+        aria-label={`元のページを新しいタブで開く（${host || "外部"}）`}
       >
-        <a
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium text-amber-900/95 transition duration-200 ease-out hover:bg-amber-50/95 active:bg-amber-100/80 dark:text-amber-200/95 dark:hover:bg-amber-950/40"
-          aria-label={`元のページを新しいタブで開く（${host || article.url}）`}
-        >
-          <ExternalPageIcon className="shrink-0 opacity-90" />
-          ページを開く
-        </a>
-        <Link
-          href={detailHref}
-          className="flex items-center justify-center py-2.5 text-[11px] font-medium text-stone-700 transition duration-200 ease-out hover:bg-stone-50/95 active:bg-stone-100/80 dark:text-stone-200 dark:hover:bg-stone-800/80"
-          aria-label="tokutoku の詳細画面を開く"
-        >
-          詳細
-        </Link>
-      </div>
+        <ExternalPageIcon className="shrink-0 opacity-90" />
+        ページを開く
+      </a>
+      <Link
+        href={detailHref}
+        className="flex items-center justify-center py-2.5 text-[11px] font-medium text-stone-700 transition duration-200 ease-out hover:bg-stone-50/95 active:bg-stone-100/80 dark:text-stone-200 dark:hover:bg-stone-800/80"
+        aria-label="tokutoku の詳細画面を開く"
+      >
+        詳細
+      </Link>
     </div>
   );
 }

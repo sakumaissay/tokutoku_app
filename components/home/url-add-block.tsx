@@ -2,15 +2,27 @@
 
 import { STATUS_LABEL_JA } from "@/lib/status-labels";
 import type { ArticleStatus } from "@/types/article";
+import {
+  googleFaviconUrl,
+  linkCardHelperText,
+  normalizeDomainFromUrl,
+  primaryTitleForLinkDisplay,
+  siteLabelFromSource,
+  shouldUseLinkStylePreview,
+  type PreviewDisplayKind,
+} from "@/lib/link-card-display";
 import { extractFirstHttpUrl, normalizeHttpUrl } from "@/lib/url";
 
 export type PreviewData = {
   url: string;
   title: string | null;
+  /** OGP 由来のタイトルのみ（未取得は null／undefined） */
+  titleFromOgp?: string | null;
   description: string | null;
   imageUrl: string | null;
   siteName: string | null;
   error: string | null;
+  displayKind?: PreviewDisplayKind;
 };
 
 const STATUS_SAVE_OPTIONS: ArticleStatus[] = ["queued", "digesting", "stocked"];
@@ -26,6 +38,10 @@ type Props = {
   saving: boolean;
   preview: PreviewData | null;
   actionError: string | null;
+  saveTitleManual: string;
+  onSaveTitleManualChange: (v: string) => void;
+  /** OGP でタイトルが無いとき true（このときタイトル手入力が必要） */
+  needsManualTitle: boolean;
   saveNote: string;
   onSaveNoteChange: (v: string) => void;
   tagsInput: string;
@@ -45,6 +61,9 @@ export function UrlAddBlock({
   saving,
   preview,
   actionError,
+  saveTitleManual,
+  onSaveTitleManualChange,
+  needsManualTitle,
   saveNote,
   onSaveNoteChange,
   tagsInput,
@@ -176,14 +195,32 @@ export function UrlAddBlock({
                     ))}
                   </select>
                 </label>
+                {needsManualTitle && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-stone-600 dark:text-stone-400">
+                      タイトル <span className="text-red-600 dark:text-red-400">*</span>
+                    </span>
+                    <input
+                      type="text"
+                      name="save-title-manual"
+                      value={saveTitleManual}
+                      onChange={(e) => onSaveTitleManualChange(e.target.value)}
+                      placeholder="ページ内容がわかる短いタイトル"
+                      className="min-h-[44px] w-full rounded-xl border border-stone-200 bg-stone-50/90 px-3 py-2 text-[14px] text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-amber-400/90 focus:bg-white focus:ring-2 focus:ring-amber-400/20 dark:border-stone-600 dark:bg-stone-900/60 dark:text-stone-100 dark:focus:border-amber-500/80 dark:focus:ring-amber-500/25"
+                    />
+                    <span className="text-[10px] text-stone-500 dark:text-stone-400">
+                      プレビューは参考表示です（ドメインからの仮題）。保存には入力が必要です。
+                    </span>
+                  </label>
+                )}
                 <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-stone-600 dark:text-stone-400">コメント（任意）</span>
+                  <span className="text-[11px] font-medium text-stone-600 dark:text-stone-400">メモ（任意）</span>
                   <textarea
                     name="save-note"
                     rows={2}
                     value={saveNote}
                     onChange={(e) => onSaveNoteChange(e.target.value)}
-                    placeholder="メモや読む理由など"
+                    placeholder="なぜ保存したかメモすると後で見返しやすいです"
                     className="min-h-[52px] w-full resize-y rounded-xl border border-stone-200 bg-stone-50/90 px-3 py-2 text-[14px] text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-amber-400/90 focus:bg-white focus:ring-2 focus:ring-amber-400/20 dark:border-stone-600 dark:bg-stone-900/60 dark:text-stone-100 dark:focus:border-amber-500/80 dark:focus:ring-amber-500/25"
                   />
                 </label>
@@ -214,13 +251,13 @@ export function UrlAddBlock({
 
 function PreviewSkeleton() {
   return (
-    <div className="p-4" aria-busy="true" aria-label="プレビューを読み込み中">
+    <div className="px-4 py-3" aria-busy="true" aria-label="プレビューを読み込み中">
       <div className="flex gap-3">
-        <div className="h-20 w-28 shrink-0 animate-pulse rounded-xl bg-stone-200 dark:bg-stone-700" />
+        <div className="h-10 w-10 shrink-0 animate-pulse rounded-lg bg-stone-200 dark:bg-stone-700" />
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 py-0.5">
-          <div className="h-4 w-[85%] animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
-          <div className="h-3 w-1/3 animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
-          <div className="h-3 w-full animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
+          <div className="h-3 w-24 animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
+          <div className="h-4 w-[88%] animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
+          <div className="h-3 w-1/2 animate-pulse rounded-md bg-stone-200 dark:bg-stone-600" />
         </div>
       </div>
     </div>
@@ -238,8 +275,106 @@ function PreviewCard({
   onRetry: () => void;
   onDismiss: () => void;
 }) {
+  const linkLayout = preview.displayKind === "link" || shouldUseLinkStylePreview(preview);
+  if (linkLayout) {
+    return <PreviewLinkCard preview={preview} saving={saving} onRetry={onRetry} onDismiss={onDismiss} />;
+  }
+  return <PreviewOgpCard preview={preview} saving={saving} onRetry={onRetry} onDismiss={onDismiss} />;
+}
+
+function PreviewCloseButton({
+  onDismiss,
+  saving,
+}: {
+  onDismiss: () => void;
+  saving: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onDismiss}
+      disabled={saving}
+      className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-stone-500 transition duration-200 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40 dark:hover:bg-stone-800 dark:hover:text-stone-200"
+      aria-label="プレビューを閉じる"
+    >
+      <span className="text-lg leading-none" aria-hidden>
+        ×
+      </span>
+    </button>
+  );
+}
+
+/** Slack 風: 画像エリアなし・ドメイン＋favicon＋タイトル＋補助文言（URL は出さない） */
+function PreviewLinkCard({
+  preview,
+  saving,
+  onRetry,
+  onDismiss,
+}: {
+  preview: PreviewData;
+  saving: boolean;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const domain = normalizeDomainFromUrl(preview.url);
+  const favicon = googleFaviconUrl(domain, 64);
+  const site = siteLabelFromSource(preview);
+  const title = primaryTitleForLinkDisplay(preview);
+  const helper = linkCardHelperText(domain);
+  const showRetry = Boolean(preview.error);
+
+  return (
+    <div className="relative px-4 py-3">
+      <PreviewCloseButton onDismiss={onDismiss} saving={saving} />
+
+      <div className="flex gap-3 pr-8">
+        <div className="shrink-0 pt-0.5">
+          {favicon ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={favicon} alt="" className="h-10 w-10 rounded-lg border border-stone-200/80 bg-white object-contain dark:border-stone-600 dark:bg-stone-900" width={40} height={40} />
+          ) : (
+            <div className="h-10 w-10 rounded-lg bg-stone-100 dark:bg-stone-800" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          {showRetry && (
+            <div className="mb-2 rounded-lg border border-amber-200/90 bg-amber-50/95 px-2.5 py-1.5 text-[11px] text-amber-950 dark:border-amber-800/70 dark:bg-amber-950/35 dark:text-amber-100">
+              <p className="opacity-90">{preview.error}</p>
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={saving}
+                className="mt-1 font-medium text-amber-900 underline underline-offset-2 dark:text-amber-200"
+              >
+                再取得
+              </button>
+            </div>
+          )}
+          <p className="truncate text-[12px] font-medium text-stone-500 dark:text-stone-400">{site || "\u00a0"}</p>
+          <h3 className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-snug text-stone-800 dark:text-stone-50">
+            {title}
+          </h3>
+          <p className="mt-1 text-[11px] text-stone-400 dark:text-stone-500">{helper}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** OGP サムネありの従来レイアウト */
+function PreviewOgpCard({
+  preview,
+  saving,
+  onRetry,
+  onDismiss,
+}: {
+  preview: PreviewData;
+  saving: boolean;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
   const hasPartialFailure = Boolean(preview.error);
-  const title = preview.title?.trim() || "ページ";
+  const title = primaryTitleForLinkDisplay(preview);
   const domain =
     preview.siteName?.trim() ||
     (() => {
@@ -249,41 +384,18 @@ function PreviewCard({
         return "";
       }
     })();
-  const faviconUrl = domain
-    ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
-    : null;
+  const faviconUrl = googleFaviconUrl(normalizeDomainFromUrl(preview.url), 64);
 
   return (
     <div className="relative p-4">
-      <button
-        type="button"
-        onClick={onDismiss}
-        disabled={saving}
-        className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-stone-500 transition duration-200 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40 dark:hover:bg-stone-800 dark:hover:text-stone-200"
-        aria-label="プレビューを閉じる"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          ×
-        </span>
-      </button>
+      <PreviewCloseButton onDismiss={onDismiss} saving={saving} />
 
       <div className="flex gap-3 pr-8">
         <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-xl bg-stone-100 dark:bg-stone-800/80">
           {preview.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={preview.imageUrl}
-              alt=""
-              className="h-full w-full object-cover object-top"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              {faviconUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={faviconUrl} alt="" className="h-8 w-8 rounded-md" />
-              )}
-            </div>
-          )}
+            <img src={preview.imageUrl} alt="" className="h-full w-full object-cover object-top" />
+          ) : null}
         </div>
 
         <div className="min-w-0 flex-1 pt-0.5">
@@ -302,9 +414,7 @@ function PreviewCard({
             </div>
           )}
 
-          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-stone-800 dark:text-stone-50">
-            {title}
-          </h3>
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-stone-800 dark:text-stone-50">{title}</h3>
           {domain && (
             <p className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-stone-500 dark:text-stone-400">
               {faviconUrl && (
@@ -315,9 +425,7 @@ function PreviewCard({
             </p>
           )}
           {preview.description && !hasPartialFailure && (
-            <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-stone-600 dark:text-stone-400">
-              {preview.description}
-            </p>
+            <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-stone-600 dark:text-stone-400">{preview.description}</p>
           )}
         </div>
       </div>

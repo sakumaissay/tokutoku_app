@@ -64,11 +64,11 @@ export async function POST(req: Request) {
     const insert = {
       user_id: user.id,
       url: b.url,
-      title: b.title ?? null,
-      description: b.description ?? null,
+      title: b.title,
+      description: b.description?.trim() || null,
       image_url: b.imageUrl ?? null,
       site_name: b.siteName ?? null,
-      note: b.note ?? null,
+      note: b.note?.trim() || null,
       status: b.status,
       tags: b.tags ?? [],
     };

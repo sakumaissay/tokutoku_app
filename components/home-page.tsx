@@ -10,39 +10,19 @@ import { normalizeHttpUrl } from "@/lib/url";
 import { SiteLogo } from "@/components/site-logo";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import type { Article, ArticleStatus } from "@/types/article";
+import {
+  createLinkStylePreview,
+  inferLegacyTitleFromOgp,
+  normalizeRichPreview,
+  previewNeedsManualTitle,
+  richPreviewFromOgpJson,
+  type RichLinkPreview,
+} from "@/lib/link-card-display";
 
 const defaultFilter: FilterState = { status: "all", tag: "", keyword: "" };
 
 const ARTICLES_CACHE_PREFIX = "tokutoku:articles:v1:";
 const OGP_CACHE_PREFIX = "tokutoku:ogp:v1:";
-
-function domainFromUrl(rawUrl: string): string {
-  try {
-    return new URL(rawUrl).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function fallbackTitleByDomain(domain: string): string {
-  if (!domain) return "ページ";
-  if (domain === "x.com" || domain === "twitter.com") return "Xの投稿";
-  if (domain === "note.com") return "noteの記事";
-  if (domain === "youtube.com" || domain === "youtu.be") return "YouTube動画";
-  return `${domain} のページ`;
-}
-
-function createFallbackPreview(url: string, error?: string): PreviewData {
-  const domain = domainFromUrl(url);
-  return {
-    url,
-    title: fallbackTitleByDomain(domain),
-    description: null,
-    imageUrl: domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128` : null,
-    siteName: domain || null,
-    error: error ?? "OGPを取得できなかったため、簡易プレビューを表示しています。",
-  };
-}
 
 function filterArticles(articles: Article[], f: FilterState): Article[] {
   let list = articles;
@@ -82,9 +62,12 @@ export function HomePage() {
   const [saveNote, setSaveNote] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [saveStatus, setSaveStatus] = useState<"" | ArticleStatus>("");
+  /** OGP 未取得時は保存用タイトルの手入力 */
+  const [saveTitleManual, setSaveTitleManual] = useState("");
   const listSectionRef = useRef<HTMLElement | null>(null);
   /** URL クリアや新規プレビューで古い OGP 応答を捨てる */
   const ogpGenRef = useRef(0);
+  const previewRef = useRef<PreviewData | null>(null);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -107,6 +90,7 @@ export function HomePage() {
 
     setArticles([]);
     setPreview(null);
+    setSaveTitleManual("");
     setActionError(null);
 
     router.push("/");
@@ -122,10 +106,15 @@ export function HomePage() {
   }, []);
 
   useEffect(() => {
+    previewRef.current = preview;
+  }, [preview]);
+
+  useEffect(() => {
     // ユーザー切り替え時の「旧一覧が一瞬見える」事故を避ける
     setArticles([]);
     setListError(null);
     setPreview(null);
+    setSaveTitleManual("");
   }, [userId]);
 
   const handleUrlChange = useCallback((v: string) => {
@@ -138,6 +127,7 @@ export function HomePage() {
       setSaveNote("");
       setTagsInput("");
       setSaveStatus("");
+      setSaveTitleManual("");
     }
   }, []);
 
@@ -148,6 +138,7 @@ export function HomePage() {
     setActionError(null);
     setLoadingOgp(false);
     setSaveStatus("");
+    setSaveTitleManual("");
   }, []);
 
   const loadArticles = useCallback(async () => {
@@ -222,18 +213,25 @@ export function HomePage() {
     () => Boolean(normalizedUrl && preview && preview.url === normalizedUrl),
     [normalizedUrl, preview],
   );
+  const needsManualTitle = Boolean(preview && previewNeedsManualTitle(preview));
+
   /**
-   * 未取得なら取得のため押せる。取得済みなら状態が選ばれるまで無効。
+   * 未取得なら取得のため押せる。取得済みなら状態が選ばれるまで無効。OGP 無タイトル時は手入力タイトル必須。
    */
   const saveButtonEnabled = useMemo(
     () =>
-      Boolean(url.trim()) && !loadingOgp && !saving && (!previewMatchesUrl || Boolean(saveStatus)),
-    [url, loadingOgp, saving, previewMatchesUrl, saveStatus],
+      Boolean(url.trim()) &&
+      !loadingOgp &&
+      !saving &&
+      (!previewMatchesUrl || (Boolean(saveStatus) && (!needsManualTitle || Boolean(saveTitleManual.trim())))),
+    [url, loadingOgp, saving, previewMatchesUrl, saveStatus, needsManualTitle, saveTitleManual],
   );
 
   const performOgpFetch = useCallback(async (normalized: string): Promise<PreviewData | null> => {
     const myGen = ++ogpGenRef.current;
     const cacheKey = `${OGP_CACHE_PREFIX}${normalized}`;
+
+    const previousUrl = previewRef.current?.url ?? null;
 
     // キャッシュヒットなら即表示（ただし世代管理に従って、最新呼び出しのみ反映する）
     try {
@@ -242,9 +240,20 @@ export function HomePage() {
         const parsed = JSON.parse(cacheRaw) as PreviewData;
         // URL が一致するキャッシュだけ採用（壊れていても例外にしない）
         if (parsed && typeof parsed.url === "string" && parsed.url === normalized) {
-          setPreview(parsed);
+          const titleFromOgp =
+            "titleFromOgp" in parsed
+              ? (parsed.titleFromOgp?.trim() || null)
+              : inferLegacyTitleFromOgp(parsed);
+          const previewData = normalizeRichPreview({
+            ...(parsed as RichLinkPreview),
+            titleFromOgp,
+          } as RichLinkPreview) as PreviewData;
+          setPreview(previewData);
           setLoadingOgp(false);
-          return parsed;
+          if (previewData.url !== previousUrl) {
+            setSaveTitleManual("");
+          }
+          return previewData;
         }
       }
     } catch {
@@ -272,29 +281,28 @@ export function HomePage() {
       if (!res.ok) {
         throw new Error(apiErrorMessage(json));
       }
-      const data: PreviewData = {
-        url: json.url ?? normalized,
-        title: json.title ?? null,
-        description: json.description ?? null,
-        imageUrl: json.imageUrl ?? null,
-        siteName: json.siteName ?? null,
-        error: typeof json.error === "string" ? json.error : null,
-      };
-      setPreview(data);
+      const previewData = richPreviewFromOgpJson(normalized, json) as PreviewData;
+      setPreview(previewData);
+      if (previewData.url !== previousUrl) {
+        setSaveTitleManual("");
+      }
 
       // OGP は軽いキャッシュ（壊れたら読み直しで復旧）
       try {
-        localStorage.setItem(cacheKey, JSON.stringify(data));
+        localStorage.setItem(cacheKey, JSON.stringify(previewData));
       } catch {
         // 保存失敗は無視
       }
 
-      return data;
+      return previewData;
     } catch (e) {
       if (myGen !== ogpGenRef.current) return null;
       const msg = e instanceof Error ? e.message : "プレビュー取得に失敗しました";
-      const fallback = createFallbackPreview(normalized, msg);
+      const fallback = createLinkStylePreview(normalized, msg) as PreviewData;
       setPreview(fallback);
+      if (fallback.url !== previousUrl) {
+        setSaveTitleManual("");
+      }
       setActionError(null);
       return fallback;
     } finally {
@@ -337,6 +345,12 @@ export function HomePage() {
       setActionError("状態を選んでください");
       return;
     }
+    const titleOgp = data.titleFromOgp?.trim() || null;
+    const resolvedTitle = titleOgp ?? saveTitleManual.trim();
+    if (!resolvedTitle) {
+      setActionError("OGP でタイトルが取れないため、タイトルを入力してください");
+      return;
+    }
     setSaving(true);
     setSaveNotice(null);
     try {
@@ -345,8 +359,8 @@ export function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: data.url,
-          title: data.title,
-          description: data.description,
+          title: resolvedTitle,
+          description: data.description?.trim() || null,
           imageUrl: data.imageUrl,
           siteName: data.siteName,
           status: saveStatus,
@@ -361,6 +375,7 @@ export function HomePage() {
       setUrl("");
       setPreview(null);
       setSaveNote("");
+      setSaveTitleManual("");
       setTagsInput("");
       setSaveStatus("");
       await loadArticles();
@@ -371,7 +386,7 @@ export function HomePage() {
     } finally {
       setSaving(false);
     }
-  }, [url, preview, performOgpFetch, loadArticles, saveNote, tagsInput, saveStatus]);
+  }, [url, preview, performOgpFetch, loadArticles, saveNote, saveTitleManual, tagsInput, saveStatus]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-5 py-10 md:gap-14 md:px-8 md:py-14">
@@ -405,6 +420,9 @@ export function HomePage() {
         actionError={actionError}
         saveNote={saveNote}
         onSaveNoteChange={setSaveNote}
+        saveTitleManual={saveTitleManual}
+        onSaveTitleManualChange={setSaveTitleManual}
+        needsManualTitle={needsManualTitle}
         tagsInput={tagsInput}
         onTagsInputChange={setTagsInput}
         saveStatus={saveStatus}
