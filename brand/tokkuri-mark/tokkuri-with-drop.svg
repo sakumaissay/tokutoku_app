@@ -1,0 +1,9 @@
+<!--
+  tokutoku マーク案2：徳利＋一滴
+  「注いで溜める」イメージ。滴は胴下の縦長楕円で最小表現。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 44" fill="currentColor" role="img" aria-label="徳利と滴">
+  <rect x="12" y="0" width="8" height="9" rx="2" />
+  <ellipse cx="16" cy="23" rx="12.5" ry="13" />
+  <ellipse cx="16" cy="40" rx="2.8" ry="3.5" />
+</svg>
