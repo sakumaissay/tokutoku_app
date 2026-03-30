@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const articleStatusSchema = z.enum(["reading", "thinking", "stocked"]);
+export const articleStatusSchema = z.enum(["queued", "digesting", "stocked"]);
 
 export const postArticleBodySchema = z.object({
   url: z.string().url(),

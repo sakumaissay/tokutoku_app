@@ -13,7 +13,7 @@ export type PreviewData = {
   error: string | null;
 };
 
-const STATUS_SAVE_OPTIONS: ArticleStatus[] = ["reading", "thinking", "stocked"];
+const STATUS_SAVE_OPTIONS: ArticleStatus[] = ["queued", "digesting", "stocked"];
 
 type Props = {
   url: string;

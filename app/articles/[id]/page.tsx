@@ -17,7 +17,7 @@ export default function ArticlePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const [status, setStatus] = useState<ArticleStatus>("reading");
+  const [status, setStatus] = useState<ArticleStatus>("queued");
   const [tagsRaw, setTagsRaw] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState(false);

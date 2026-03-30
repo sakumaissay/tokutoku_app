@@ -1,4 +1,4 @@
-export type ArticleStatus = "reading" | "thinking" | "stocked";
+export type ArticleStatus = "queued" | "digesting" | "stocked";
 
 export type Article = {
   id: string;

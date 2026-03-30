@@ -2,14 +2,14 @@ import type { ArticleStatus } from "@/types/article";
 
 /** UI 表示用（一覧・フィルタ・詳細） */
 export const STATUS_LABEL_JA: Record<ArticleStatus, string> = {
-  reading: "読む",
-  thinking: "考え中",
-  stocked: "ストック化",
+  queued: "あとで読む",
+  digesting: "考え中",
+  stocked: "ストック済み",
 };
 
 export const STATUS_OPTIONS: { value: ArticleStatus | "all"; label: string }[] = [
   { value: "all", label: "すべて" },
-  { value: "reading", label: STATUS_LABEL_JA.reading },
-  { value: "thinking", label: STATUS_LABEL_JA.thinking },
+  { value: "queued", label: STATUS_LABEL_JA.queued },
+  { value: "digesting", label: STATUS_LABEL_JA.digesting },
   { value: "stocked", label: STATUS_LABEL_JA.stocked },
 ];
